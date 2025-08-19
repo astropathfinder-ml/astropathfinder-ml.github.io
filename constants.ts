@@ -28,6 +28,8 @@ export const UNSUPERVISED_DR_CONTENT: ContentItem[] = [
         title: "Kernel PCA",
         description: "An extension of PCA which can handle non-linearly separable data. Kernel PCA works by projecting the data into a higher-dimensional space where it becomes linearly separable, and then applying standard PCA.",
         // imageUrl: "/assets/kernel-pca.png"
+        imageUrl: "/assets/kernel-pca.png"
+
     },
     {
         title: "t-Distributed Stochastic Neighbor Embedding (t-SNE)",

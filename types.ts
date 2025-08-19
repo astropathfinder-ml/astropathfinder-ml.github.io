@@ -3,6 +3,7 @@ export interface TeamMember {
   photoUrl: string;
   linkedinUrl: string;
   websiteUrl: string;
+  objectPosition?: string;
 }
 
 export interface ContentItem {

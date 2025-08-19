@@ -6,14 +6,16 @@ import AtmosphereExample from '../components/playground/AtmosphereExample';
 import GalaxyZooExample from '../components/playground/GalaxyZooExample';
 import StellarSpectraExample from '../components/playground/StellarSpectraExample';
 import AnomalyDetectionExample from '../components/playground/AnomalyDetectionExample';
-import { ArrowLeftIcon, TelescopeIcon, AtomIcon, PlanetIcon, GalaxyIcon, SpectrumIcon, SignalIcon } from '../components/Icons';
+import LiveKMeansExample from '../components/playground/LiveKMeansExample';
+import { ArrowLeftIcon, TelescopeIcon, AtomIcon, PlanetIcon, GalaxyIcon, SpectrumIcon, SignalIcon, BeakerIcon } from '../components/Icons';
 
-type Example = 'hub' | 'habitable-zone' | 'imagery' | 'atmosphere' | 'galaxy-zoo' | 'stellar-spectra' | 'anomaly-detection';
+type Example = 'hub' | 'habitable-zone' | 'imagery' | 'atmosphere' | 'galaxy-zoo' | 'stellar-spectra' | 'anomaly-detection' | 'live-kmeans';
 
 const EXAMPLES: {
     key: Example;
     title: string;
     description: string;
+    shortDescription: string;
     Icon: React.FC<React.SVGProps<SVGSVGElement>>;
     color: string;
     paperTitle: string;
@@ -23,55 +25,71 @@ const EXAMPLES: {
         key: 'habitable-zone',
         title: 'Habitable Exoplanet Classification',
         description: 'Use orbital and stellar data to determine if a planet lies within the "Goldilocks Zone" where liquid water could exist.',
+        shortDescription: 'Habitability',
         Icon: PlanetIcon,
         color: 'amber',
-        // paperTitle: 'Facing the Heat: A Machine Learning-Based Analysis of Exoplanetary Habitability',
-        // paperUrl: 'https://arxiv.org/abs/2105.02237',
+        paperTitle: 'Facing the Heat: A Machine Learning-Based Analysis of Exoplanetary Habitability',
+        paperUrl: 'https://arxiv.org/abs/2105.02237',
     },
     {
         key: 'imagery',
         title: 'Planetary Transit Detection',
         description: 'Analyze starfield imagery to detect the subtle dip in brightness caused by a transiting exoplanet, a key method for discovery.',
+        shortDescription: 'Transits',
         Icon: TelescopeIcon,
         color: 'cyan',
-        // paperTitle: 'Identifying Exoplanets with Deep Learning',
-        // paperUrl: 'https://iopscience.iop.org/article/10.3847/1538-3881/aa9e09',
+        paperTitle: 'Identifying Exoplanets with Deep Learning',
+        paperUrl: 'https://iopscience.iop.org/article/10.3847/1538-3881/aa9e09',
     },
     {
         key: 'atmosphere',
         title: 'Atmospheric Biosignature Detection',
         description: 'Search for signs of life by analyzing the atmospheric spectra of exoplanets for tell-tale chemical fingerprints like oxygen or methane.',
+        shortDescription: 'Atmospheres',
         Icon: AtomIcon,
         color: 'indigo',
-        // paperTitle: 'An unsupervised machine learning approach to identifying anomalous spectra for biosignature detection',
-        // paperUrl: 'https://www.nature.com/articles/s41550-021-01509-3',
+        paperTitle: 'An unsupervised machine learning approach to identifying anomalous spectra for biosignature detection',
+        paperUrl: 'https://www.nature.com/articles/s41550-021-01509-3',
     },
     {
         key: 'galaxy-zoo',
         title: 'Galaxy Morphology Clustering',
         description: 'Use color and shape data to automatically group galaxies into morphological classes like "spiral" or "elliptical" without prior labels.',
+        shortDescription: 'Galaxies',
         Icon: GalaxyIcon,
         color: 'teal',
-        // paperTitle: 'Galaxy Zoo: unsupervised classification of galaxy morphologies',
-        // paperUrl: 'https://academic.oup.com/mnras/article/511/3/4313/6533038',
+        paperTitle: 'Galaxy Zoo: unsupervised classification of galaxy morphologies',
+        paperUrl: 'https://academic.oup.com/mnras/article/511/3/4313/6533038',
     },
     {
         key: 'stellar-spectra',
         title: 'Stellar Spectral Classification',
         description: 'Use PCA to reduce high-dimensional stellar spectra into a simple 2D plot, revealing distinct star types automatically.',
+        shortDescription: 'Spectra',
         Icon: SpectrumIcon,
         color: 'pink',
-        // paperTitle: 'Stellar spectral classification using principal component analysis and artificial neural networks',
-        // paperUrl: 'https://academic.oup.com/mnras/article/296/2/329/979684',
+        paperTitle: 'Stellar spectral classification using principal component analysis and artificial neural networks',
+        paperUrl: 'https://academic.oup.com/mnras/article/296/2/329/979684',
     },
     {
         key: 'anomaly-detection',
         title: 'Light Curve Anomaly Detection',
         description: 'Use DBSCAN to find rare and unusual events like stellar flares in a vast dataset of star brightness measurements.',
+        shortDescription: 'Anomalies',
         Icon: SignalIcon,
         color: 'fuchsia',
-        // paperTitle: 'An Anomaly Detection-based Search for New Physics in TESS Light Curves',
-        // paperUrl: 'https://arxiv.org/abs/2205.13203',
+        paperTitle: 'An Anomaly Detection-based Search for New Physics in TESS Light Curves',
+        paperUrl: 'https://arxiv.org/abs/2205.13203',
+    },
+    {
+        key: 'live-kmeans',
+        title: 'Live ML Code Execution',
+        description: 'Run a real K-Means clustering algorithm in your browser. See the code, change the parameters, and get an AI-powered explanation.',
+        shortDescription: 'Live K-Means',
+        Icon: BeakerIcon,
+        color: 'emerald',
+        paperTitle: 'Understanding K-Means Clustering',
+        paperUrl: 'https://en.wikipedia.org/wiki/K-means_clustering',
     }
 ];
 
@@ -133,6 +151,10 @@ const AnalysisNavigator: React.FC<{
         'anomaly-detection': {
             active: 'bg-fuchsia-500 text-white border-fuchsia-600',
             inactive: 'bg-white text-slate-700 border-slate-300 hover:bg-fuchsia-50 hover:border-fuchsia-400'
+        },
+        'live-kmeans': {
+            active: 'bg-emerald-500 text-white border-emerald-600',
+            inactive: 'bg-white text-slate-700 border-slate-300 hover:bg-emerald-50 hover:border-emerald-400'
         }
     };
 
@@ -147,10 +169,9 @@ const AnalysisNavigator: React.FC<{
                 <span className="hidden sm:inline">All Analyses</span>
             </button>
             <div className="h-8 w-px bg-slate-300 hidden sm:block"></div>
-            {EXAMPLES.map(({ key, title, Icon }) => {
+            {EXAMPLES.map(({ key, title, shortDescription, Icon }) => {
                 const isActive = current === key;
                 const styling = colorClasses[key as keyof typeof colorClasses];
-                const shortTitle = title.split(' ')[0];
                 return (
                     <button
                         key={key}
@@ -161,7 +182,7 @@ const AnalysisNavigator: React.FC<{
                     >
                         <Icon className="w-5 h-5" />
                         <span className="hidden xl:inline">{title}</span>
-                        <span className="xl:hidden">{shortTitle}</span>
+                        <span className="xl:hidden">{shortDescription}</span>
                     </button>
                 );
             })}
@@ -218,6 +239,8 @@ const Playground: React.FC = () => {
                 return <StellarSpectraExample {...props} />;
             case 'anomaly-detection':
                 return <AnomalyDetectionExample {...props} />;
+            case 'live-kmeans':
+                return <LiveKMeansExample {...props} />;
             default:
                 return <PlaygroundHub setExample={setExample} />;
         }
