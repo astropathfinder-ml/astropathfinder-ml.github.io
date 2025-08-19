@@ -12,38 +12,49 @@ interface ExampleProps {
 const GAS_SIGNATURES = {
     'H₂O': { center: 1.4, width: 0.1, depth: 0.0008 },
     'CO₂': { center: 2.0, width: 0.08, depth: 0.0006 },
-    'O₃ (Biosignature)': { center: 1.7, width: 0.05, depth: 0.00025 } // Weaker signal
+    'O₃': { center: 1.7, width: 0.05, depth: 0.00025 }, // Ozone, an oxygen proxy
+    'CH₄': { center: 2.2, width: 0.06, depth: 0.00030 }, // Methane
 };
 
-const TRADITIONAL_CODE = `def find_gases_template_matching(spectrum):
-    # Uses a simple template matching algorithm
-    # which looks for dips at exact wavelengths.
-    # It is sensitive to noise and can miss
-    # weak or overlapping signals.
-    detected_gases = []
+const TRADITIONAL_CODE = `const traditionalClassifier = (spectrum) => {
+    // Uses a simple check for a dip near a specific wavelength.
+    // This is sensitive to noise and can miss weak signals.
+    const detected = [];
+    const h2oPoint = spectrum.find(p => Math.abs(p.wavelength - 1.4) < 0.01);
+    const co2Point = spectrum.find(p => Math.abs(p.wavelength - 2.0) < 0.01);
+
+    if (h2oPoint && h2oPoint.depth < 0.9995) detected.push('H₂O');
+    if (co2Point && co2Point.depth < 0.9996) detected.push('CO₂');
     
-    # High-confidence detection for strong signals
-    if has_dip_at(spectrum, 1.4):
-        detected_gases.append('H₂O')
-    if has_dip_at(spectrum, 2.0):
-        detected_gases.append('CO₂')
+    // Fails to detect the weak O₃ and CH₄ signals in noise.
+    return detected;
+};`;
+
+const ML_CODE = `const mlClassifier = (spectrum) => {
+    // This model performs a 1D-convolution. It slides a "kernel" 
+    // representing an absorption dip across the spectrum to find matches.
+    // It's robust enough to find the weak individual signals for
+    // both O₃ and CH₄, allowing detection of the combined signature.
+    const detected = [];
+    const kernel = [-0.5, -1, -0.5]; // Represents an absorption dip
+
+    for (const [name, gas] of Object.entries(GAS_SIGNATURES)) {
+        let maxMatchScore = -Infinity;
+        // Search near the expected gas wavelength
+        for (let i = /*...search window...*/; i++) {
+            const slice = [spectrum[i-1].depth, spectrum[i].depth, spectrum[i+1].depth];
+            const score = kernel.reduce((sum, k, j) => sum + k * (1.0 - slice[j]), 0);
+            if (score > maxMatchScore) maxMatchScore = score;
+        }
         
-    # Fails to detect the weak O₃ signal in noise
-    return detected_gases`;
-
-const ML_CODE = `from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv1D, Dense
-
-# A 1D-CNN model trained to recognize spectral
-# patterns, even with significant noise.
-# It learns the complex features of multiple
-# gases and can detect weak biosignatures.
-model = build_spectral_cnn()
-model.fit(X_train, y_train)
-
-# Correctly identifies all gases
-predictions = model.predict(spectrum)
-# Output: ['H₂O', 'CO₂', 'O₃ (Biosignature)']`;
+        // Tuned thresholds to detect signals
+        const threshold = (name === 'O₃' || name === 'CH₄') ? -0.00008 : -0.0004;
+        if (maxMatchScore < threshold) {
+             detected.push(name);
+        }
+    }
+    return detected;
+};`;
 
 // --- Data Generation & Logic ---
 const generateSpectrum = (): SpectrumPoint[] => {
@@ -56,13 +67,60 @@ const generateSpectrum = (): SpectrumPoint[] => {
         }
         // Add noise
         depth += (Math.random() - 0.5) * 0.00015;
-        data.push({ wavelength: w, depth });
+        data.push({ wavelength: w, depth: parseFloat(depth.toFixed(6)) });
     }
     return data;
 };
 
+// --- Real Classifiers ---
+
+const traditionalClassifier = (spectrum: SpectrumPoint[]): string[] => {
+    const detected: string[] = [];
+    const h2oPoint = spectrum.find(p => Math.abs(p.wavelength - 1.4) < 0.01);
+    const co2Point = spectrum.find(p => Math.abs(p.wavelength - 2.0) < 0.01);
+
+    if (h2oPoint && h2oPoint.depth < 0.9995) detected.push('H₂O');
+    if (co2Point && co2Point.depth < 0.9996) detected.push('CO₂');
+    
+    return detected;
+};
+
+const mlClassifier = (spectrum: SpectrumPoint[]): string[] => {
+    const detected: string[] = [];
+    const kernel = [-0.5, -1, -0.5]; // Represents an absorption dip
+    const step = 0.01; // Wavelength step
+
+    for (const [name, gas] of Object.entries(GAS_SIGNATURES)) {
+        const centerIndex = Math.round((gas.center - 1.0) / step);
+        const searchWidth = Math.round(gas.width / step) * 2;
+        
+        let maxMatchScore = -Infinity;
+        
+        for (let i = centerIndex - searchWidth; i <= centerIndex + searchWidth; i++) {
+            if (i < 1 || i >= spectrum.length - 1) continue;
+
+            const slice = [spectrum[i-1].depth, spectrum[i].depth, spectrum[i+1].depth];
+            // Invert depth so dips are positive, then subtract baseline
+            const normalizedSlice = slice.map(d => (1.0 - d)); 
+            
+            const score = kernel[0] * normalizedSlice[0] + kernel[1] * normalizedSlice[1] + kernel[2] * normalizedSlice[2];
+            if (score > maxMatchScore) {
+                maxMatchScore = score;
+            }
+        }
+        
+        // Thresholds tuned to detect the signals
+        const threshold = (name === 'O₃' || name === 'CH₄') ? -0.00008 : -0.0004;
+        if (maxMatchScore < threshold) { // More negative is a stronger dip match
+             detected.push(name);
+        }
+    }
+    return detected;
+};
+
+
 // --- Components ---
-const AnalysisPlot: React.FC<{ data: SpectrumPoint[], highlight: AnalysisType }> = ({ data, highlight }) => {
+const AnalysisPlot: React.FC<{ data: SpectrumPoint[], highlightGases: string[] }> = ({ data, highlightGases }) => {
     const width = 500;
     const height = 400;
     const padding = 50;
@@ -86,11 +144,12 @@ const AnalysisPlot: React.FC<{ data: SpectrumPoint[], highlight: AnalysisType }>
 
             {/* Highlights */}
             {Object.entries(GAS_SIGNATURES).map(([name, gas]) => {
-                const isActive = (highlight === 'template' && name !== 'O₃ (Biosignature)') || highlight === 'ml';
-                const color = name === 'O₃ (Biosignature)' ? 'text-green-400' : 'text-cyan-400';
+                const isBiosignatureComponent = name === 'O₃' || name === 'CH₄';
+                const isActive = highlightGases.includes(name);
+                const color = isBiosignatureComponent ? 'text-green-400' : 'text-cyan-400';
                 return (
                     <g key={name} opacity={isActive ? 1 : 0.3} style={{transition: 'opacity 0.3s'}}>
-                        <rect x={scaleX(gas.center - gas.width)} y={padding} width={scaleX(gas.center + gas.width) - scaleX(gas.center - gas.width)} height={height - 2 * padding} fill={name === 'O₃ (Biosignature)' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(34, 211, 238, 0.1)'} />
+                        <rect x={scaleX(gas.center - gas.width)} y={padding} width={scaleX(gas.center + gas.width) - scaleX(gas.center - gas.width)} height={height - 2 * padding} fill={isBiosignatureComponent ? 'rgba(16, 185, 129, 0.1)' : 'rgba(34, 211, 238, 0.1)'} />
                         <text x={scaleX(gas.center)} y={padding - 5} textAnchor="middle" className={`fill-current text-xs ${color}`}>{name}</text>
                     </g>
                 )
@@ -99,29 +158,47 @@ const AnalysisPlot: React.FC<{ data: SpectrumPoint[], highlight: AnalysisType }>
     );
 };
 
-const ResultCard: React.FC<{title:string; detectedGases: string[]; active: boolean; icon: React.ReactNode; color: string;}> = ({title, detectedGases, active, icon, color}) => (
-    <div className={`p-6 rounded-lg border-2 transition-all duration-300 ${active ? 'bg-white shadow-lg' : 'bg-slate-50 border-transparent'} ${active ? color : 'border-slate-200'}`}>
+const ResultCard: React.FC<{title:string; detectedGases: string[]; active: boolean; icon: React.ReactNode; color: string;}> = ({title, detectedGases, active, icon, color}) => {
+    const isO3Detected = detectedGases.includes('O₃');
+    const isCH4Detected = detectedGases.includes('CH₄');
+    const isCombinedDetected = isO3Detected && isCH4Detected;
+
+    return (
+    <div className={`p-6 rounded-lg border-2 transition-all duration-300 mt-4 ${active ? 'bg-white shadow-lg' : 'bg-slate-50 border-transparent'} ${active ? color : 'border-slate-200'}`}>
         <div className="flex items-center gap-3">
             {icon}
             <h3 className="text-xl font-bold text-slate-800">{title}</h3>
         </div>
         <div className="mt-4">
-            <h4 className="font-semibold text-slate-700">Detected Gases:</h4>
+            <h4 className="font-semibold text-slate-700">Detected Signatures:</h4>
             <ul className="mt-2 space-y-1">
-                {detectedGases.map(gas => (
-                    <li key={gas} className={`flex items-center gap-2 font-medium ${gas.includes('Biosignature') ? 'text-green-600' : 'text-slate-600'}`}>
-                         {gas.includes('Biosignature') ? <CheckCircleIcon className="w-5 h-5 text-green-500" /> : <span className="w-5 h-5 text-center">-</span> }
-                        {gas}
+                {['H₂O', 'CO₂'].map(gas => {
+                     const isDetected = detectedGases.includes(gas);
+                     return (
+                        <li key={gas} className={`flex items-center gap-2 font-medium ${isDetected ? 'text-slate-600' : 'text-slate-400'}`}>
+                            {isDetected ? <CheckCircleIcon className="w-5 h-5 text-slate-500" /> : <XCircleIcon className="w-5 h-5 text-slate-400" />}
+                            {gas} {isDetected ? '' : '- Not Found'}
+                        </li>
+                     );
+                })}
+                <li className={`flex items-center gap-2 font-medium ${isCombinedDetected ? 'text-green-600' : 'text-red-600'}`}>
+                    {isCombinedDetected ? <CheckCircleIcon className="w-5 h-5 text-green-500" /> : <XCircleIcon className="w-5 h-5 text-red-500" />}
+                    O₃ + CH₄ (Combined Biosignature)
+                </li>
+                {!isCombinedDetected && (
+                     <li className="pl-7 text-xs font-mono">
+                        <span className={isO3Detected ? 'text-green-600' : 'text-red-600'}>O₃: {isO3Detected ? 'Found' : 'MISSING'}</span>,{' '}
+                        <span className={isCH4Detected ? 'text-green-600' : 'text-red-600'}>CH₄: {isCH4Detected ? 'Found' : 'MISSING'}</span>
                     </li>
-                ))}
-                 {detectedGases.length < 3 && <li className="text-red-600 font-medium flex items-center gap-2"><XCircleIcon className="w-5 h-5 text-red-500" />O₃ (Biosignature) - Not Found</li>}
+                )}
             </ul>
         </div>
     </div>
-);
+    )
+};
 
 const CodeDisplay: React.FC<{ code: string }> = ({ code }) => (
-    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm">
+    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm max-h-60 overflow-auto">
         <pre><code className="text-slate-300 whitespace-pre-wrap">{code}</code></pre>
     </div>
 );
@@ -131,20 +208,35 @@ const AtmosphereExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => 
     const [data, setData] = useState<SpectrumPoint[]>([]);
     const [analysisType, setAnalysisType] = useState<AnalysisType>('none');
     const [isLoading, setIsLoading] = useState<AnalysisType | null>(null);
+    const [detectedGases, setDetectedGases] = useState<string[]>([]);
 
     useEffect(() => {
         setData(generateSpectrum());
+        setAnalysisType('none');
     }, []);
 
     const handleRunAnalysis = (type: AnalysisType) => {
         if (isLoading) return;
         setIsLoading(type);
         setAnalysisType('none');
+        setDetectedGases([]);
+
         setTimeout(() => {
+            let gases: string[] = [];
+            if (type === 'template') {
+                gases = traditionalClassifier(data);
+            } else if (type === 'ml') {
+                gases = mlClassifier(data);
+            }
+            setDetectedGases(gases);
             setAnalysisType(type);
             setIsLoading(null);
         }, 750);
     };
+
+    const isMlSuccessful = useMemo(() => {
+        return detectedGases.includes('O₃') && detectedGases.includes('CH₄');
+    }, [detectedGases]);
 
     return (
         <div className="animate-fade-in space-y-12">
@@ -162,7 +254,7 @@ const AtmosphereExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => 
                     </span>
                 </div>
                 <p className="mt-4 max-w-3xl mx-auto text-lg text-slate-600">
-                    A key technique in the search for life is analyzing the light that passes through an exoplanet's atmosphere. Can we detect the chemical fingerprint of life—a biosignature—in a noisy spectrum?
+                    A key technique in the search for life is analyzing an exoplanet's atmosphere. Can we detect a robust biosignature—like the simultaneous presence of O₃ (an oxygen proxy) and CH₄ (methane)—in a noisy spectrum?
                 </p>
                 <a
                     href={paperUrl}
@@ -177,43 +269,47 @@ const AtmosphereExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => 
 
             <main className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start">
                 <div className="lg:sticky top-24">
-                    <AnalysisPlot data={data} highlight={analysisType} />
+                    <AnalysisPlot data={data} highlightGases={detectedGases} />
                     <div className="mt-2 text-center text-sm text-slate-500">
                         Simulated atmospheric spectrum of a transiting exoplanet.
                     </div>
                 </div>
 
                 <div className="space-y-6">
-                    <div>
-                        <button onClick={() => handleRunAnalysis('template')} disabled={!!isLoading} className="w-full px-6 py-4 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 disabled:bg-slate-400 disabled:cursor-wait">
+                    <div className="p-6 bg-white rounded-lg border border-slate-200 space-y-4">
+                        <h3 className="text-xl font-bold text-slate-800">Method 1: Template Matching</h3>
+                        <p className="text-sm text-slate-600">This traditional method uses a simple algorithm to look for dips at exact, pre-defined wavelengths. It is highly sensitive to noise and cannot detect the weak biosignature gases.</p>
+                        <CodeDisplay code={TRADITIONAL_CODE} />
+                        <button onClick={() => handleRunAnalysis('template')} disabled={!!isLoading} className="w-full px-6 py-3 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 disabled:bg-slate-400 disabled:cursor-wait">
                             {isLoading === 'template' ? 'Analyzing...' : 'Run Template Matching'}
                         </button>
                         {analysisType === 'template' && (
-                            <div className="mt-4 space-y-4 animate-fade-in">
-                                <CodeDisplay code={TRADITIONAL_CODE} />
+                            <div className="animate-fade-in">
                                 <ResultCard 
                                     title="Template Matching"
-                                    detectedGases={['H₂O', 'CO₂']}
+                                    detectedGases={detectedGases}
                                     active={analysisType === 'template'}
                                     icon={<XCircleIcon className="w-8 h-8 text-red-500" />}
-                                    color="border-red-500"
+                                    color={"border-red-500"}
                                 />
                             </div>
                         )}
                     </div>
-                     <div>
-                        <button onClick={() => handleRunAnalysis('ml')} disabled={!!isLoading} className="w-full px-6 py-4 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:bg-slate-400 disabled:cursor-wait">
+                     <div className="p-6 bg-white rounded-lg border border-slate-200 space-y-4">
+                        <h3 className="text-xl font-bold text-slate-800">Method 2: 1D-Convolution Matcher (ML)</h3>
+                        <p className="text-sm text-slate-600">This ML model is robust enough to detect the weak, individual signals of both O₃ and CH₄, allowing it to identify the combined biosignature that the simpler method misses entirely.</p>
+                        <CodeDisplay code={ML_CODE} />
+                        <button onClick={() => handleRunAnalysis('ml')} disabled={!!isLoading} className="w-full px-6 py-3 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:bg-slate-400 disabled:cursor-wait">
                             {isLoading === 'ml' ? 'Analyzing...' : 'Run ML Analysis'}
                         </button>
                         {analysisType === 'ml' && (
-                             <div className="mt-4 space-y-4 animate-fade-in">
-                               <CodeDisplay code={ML_CODE} />
+                             <div className="animate-fade-in">
                                <ResultCard 
-                                    title="1D-CNN Model (ML)"
-                                    detectedGases={['H₂O', 'CO₂', 'O₃ (Biosignature)']}
+                                    title="1D-Convolution Matcher (ML)"
+                                    detectedGases={detectedGases}
                                     active={analysisType === 'ml'}
-                                    icon={<CheckCircleIcon className="w-8 h-8 text-green-500" />}
-                                    color="border-green-500"
+                                    icon={isMlSuccessful ? <CheckCircleIcon className="w-8 h-8 text-green-500" /> : <XCircleIcon className="w-8 h-8 text-red-500" />}
+                                    color={isMlSuccessful ? "border-green-500" : "border-red-500"}
                                 />
                             </div>
                         )}

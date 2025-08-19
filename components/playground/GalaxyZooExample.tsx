@@ -4,41 +4,111 @@ import { CheckCircleIcon, XCircleIcon, BookOpenIcon } from '../Icons';
 // --- Data Types and Constants ---
 type GalaxyType = 'spiral' | 'elliptical' | 'irregular';
 type DataPoint = { id: number; features: { color: number; concentration: number }; type: GalaxyType; };
+type KMeansResult = { assignments: number[]; centroids: { x: number; y: number }[] };
 type AnalysisType = 'none' | 'threshold' | 'ml';
 interface ExampleProps {
     paperTitle: string;
     paperUrl: string;
 }
 
-const MANUAL_CODE = `def classify_galaxy_by_rules(galaxy):
-    # Uses simple, manually-defined thresholds.
-    # This method is brittle and fails to capture
-    # the complex boundaries between galaxy types.
-    color = galaxy['color']
-    concentration = galaxy['concentration']
+const MANUAL_CODE = `const classifyGalaxyByRules = (galaxy) => {
+    // Uses simple, manually-defined thresholds.
+    // This method is brittle and fails to capture
+    // the complex boundaries between galaxy types.
+    const { color, concentration } = galaxy.features;
     
-    if color < 0.7 and concentration > 0.4:
-        return 'Elliptical' # Red & concentrated
-    elif color > 0.6:
-        return 'Spiral' # Blue
-    else:
-        return 'Irregular'`;
+    if (color < 0.7 && concentration > 0.4) {
+        return 'Elliptical'; // Red & concentrated
+    } else if (color > 0.6) {
+        return 'Spiral'; // Blue
+    } else {
+        return 'Irregular';
+    }
+};`;
 
-const ML_CODE = `from sklearn.cluster import KMeans
+const ML_CODE = `const runKMeans = (data, k, maxIterations = 50) => {
+    // 1. Initialize 'k' centroids randomly from the data.
+    let centroids = data.slice(0, k).map(p => ({ 
+        x: p.features.color, y: p.features.concentration 
+    }));
 
-# K-Means clustering algorithm automatically finds
-# the natural groupings (clusters) in the data
-# without being given any labels.
-# It effectively separates the different
-# galaxy populations.
-model = KMeans(n_clusters=3)
-clusters = model.fit_predict(X_data)
+    for (let i = 0; i < maxIterations; i++) {
+        // 2. Assign each data point to its nearest centroid.
+        const assignments = data.map(point => {
+            let closestCentroid = 0;
+            let minDistance = Infinity;
+            centroids.forEach((centroid, index) => {
+                const distance = /* ... calculate distance ... */;
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestCentroid = index;
+                }
+            });
+            return closestCentroid;
+        });
 
-# Score shows high agreement with true types
-# (Adjusted Rand Score)
-score = adjusted_rand_score(true_labels, clusters)
-print(f"Clustering Score: {score:.2f}")`;
+        // 3. Update centroids to be the mean of their assigned points.
+        // ...
+    }
+    return { assignments, centroids };
+};`;
 
+// --- Real K-Means Implementation ---
+const runKMeans = (
+    data: DataPoint[],
+    k: number,
+    maxIterations = 50
+): KMeansResult => {
+    let centroids = [];
+    const usedIndices = new Set();
+    while (centroids.length < k && centroids.length < data.length) {
+        const randomIndex = Math.floor(Math.random() * data.length);
+        if (!usedIndices.has(randomIndex)) {
+            centroids.push({ x: data[randomIndex].features.color, y: data[randomIndex].features.concentration });
+            usedIndices.add(randomIndex);
+        }
+    }
+
+    let assignments = new Array(data.length).fill(0);
+    let changed = true;
+
+    for (let iter = 0; iter < maxIterations && changed; iter++) {
+        changed = false;
+        
+        data.forEach((point, i) => {
+            let minDistance = Infinity;
+            let bestCluster = 0;
+            centroids.forEach((centroid, clusterIndex) => {
+                const distance = Math.sqrt(
+                    Math.pow(point.features.color - centroid.x, 2) + Math.pow(point.features.concentration - centroid.y, 2)
+                );
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    bestCluster = clusterIndex;
+                }
+            });
+            if (assignments[i] !== bestCluster) {
+                assignments[i] = bestCluster;
+                changed = true;
+            }
+        });
+
+        const newCentroids = Array.from({ length: k }, () => ({ x: 0, y: 0, count: 0 }));
+        data.forEach((point, i) => {
+            const clusterIndex = assignments[i];
+            newCentroids[clusterIndex].x += point.features.color;
+            newCentroids[clusterIndex].y += point.features.concentration;
+            newCentroids[clusterIndex].count++;
+        });
+
+        centroids = newCentroids.map(c => ({
+            x: c.count > 0 ? c.x / c.count : 0,
+            y: c.count > 0 ? c.y / c.count : 0,
+        }));
+    }
+
+    return { assignments, centroids };
+};
 
 // --- Data Generation & Logic ---
 const generateData = (numPoints = 150): DataPoint[] => {
@@ -70,7 +140,7 @@ const generateData = (numPoints = 150): DataPoint[] => {
 const AnalysisPlot: React.FC<{
     data: DataPoint[],
     analysis: AnalysisType,
-    clusters?: { [id: number]: number }
+    clusters?: number[]
 }> = ({ data, analysis, clusters }) => {
     const width = 500;
     const height = 400;
@@ -91,11 +161,9 @@ const AnalysisPlot: React.FC<{
 
     return (
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-slate-900 rounded-lg border-2 border-slate-700" aria-label="Galaxy morphology scatter plot">
-            {/* Axis Labels */}
             <text x={width/2} y={height - 15} textAnchor="middle" className="fill-slate-400 text-sm font-sans">Color Index (Blue &rarr; Red)</text>
             <text x={-height/2} y={15} textAnchor="middle" transform="rotate(-90)" className="fill-slate-400 text-sm font-sans">Light Concentration</text>
             
-            {/* Manual Threshold boundaries */}
             {analysis === 'threshold' && (
                 <g>
                     <rect x={scaleX(0.1)} y={scaleY(0.9)} width={scaleX(0.7) - scaleX(0.1)} height={scaleY(0.4) - scaleY(0.9)} className="fill-red-500/10 stroke-red-500 stroke-2 stroke-dasharray-4" />
@@ -103,15 +171,13 @@ const AnalysisPlot: React.FC<{
                 </g>
             )}
 
-            {/* Data points */}
-            {data.map((p) => {
+            {data.map((p, i) => {
                 let colorClass = 'fill-slate-500';
                 if (analysis === 'none') {
                     colorClass = typeToColor[p.type];
                 } else if (analysis === 'ml' && clusters) {
-                    colorClass = clusterToColor[clusters[p.id]];
-                } else {
-                     // For threshold, we determine color by the classification logic
+                    colorClass = clusterToColor[clusters[i]];
+                } else if (analysis === 'threshold') {
                      if (p.features.color < 0.7 && p.features.concentration > 0.4) colorClass = 'fill-red-400';
                      else if (p.features.color > 0.6) colorClass = 'fill-cyan-400';
                      else colorClass = 'fill-slate-400';
@@ -133,7 +199,7 @@ const AnalysisPlot: React.FC<{
 };
 
 const ResultCard: React.FC<{title:string; description: string; score: number; active: boolean; icon: React.ReactNode; color: string; textColor: string}> = ({title, description, score, active, icon, color, textColor}) => (
-    <div className={`p-6 rounded-lg border-2 transition-all duration-300 ${active ? 'bg-white shadow-lg' : 'bg-slate-50 border-transparent'} ${active ? color : 'border-slate-200'}`}>
+    <div className={`p-6 rounded-lg border-2 transition-all duration-300 mt-4 ${active ? 'bg-white shadow-lg' : 'bg-slate-50 border-transparent'} ${active ? color : 'border-slate-200'}`}>
         <div className="flex items-center gap-3">
             {icon}
             <h3 className="text-xl font-bold text-slate-800">{title}</h3>
@@ -146,7 +212,7 @@ const ResultCard: React.FC<{title:string; description: string; score: number; ac
 );
 
 const CodeDisplay: React.FC<{ code: string }> = ({ code }) => (
-    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm">
+    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm max-h-60 overflow-auto">
         <pre><code className="text-slate-300 whitespace-pre-wrap">{code}</code></pre>
     </div>
 );
@@ -156,11 +222,39 @@ const GalaxyZooExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => {
     const [data, setData] = useState<DataPoint[]>([]);
     const [analysisType, setAnalysisType] = useState<AnalysisType>('none');
     const [isLoading, setIsLoading] = useState<AnalysisType | null>(null);
-    const [clusters, setClusters] = useState<{ [id: number]: number } | undefined>();
+    const [clusters, setClusters] = useState<number[] | undefined>();
+    const [mlScore, setMlScore] = useState(0);
 
     useEffect(() => {
         setData(generateData());
     }, []);
+    
+    const calculateMlScore = (assignments: number[]): number => {
+        const k = Math.max(...assignments) + 1;
+        const clusterLabels: (GalaxyType | null)[] = new Array(k).fill(null);
+        let correctCount = 0;
+
+        for (let i = 0; i < k; i++) {
+            const pointsInCluster = data.filter((_, j) => assignments[j] === i);
+            if (pointsInCluster.length === 0) continue;
+            
+            const typeCounts = pointsInCluster.reduce((acc, p) => {
+                acc[p.type] = (acc[p.type] || 0) + 1;
+                return acc;
+            }, {} as Record<GalaxyType, number>);
+
+            const majorityType = Object.keys(typeCounts).reduce((a, b) => typeCounts[a as GalaxyType] > typeCounts[b as GalaxyType] ? a : b) as GalaxyType;
+            clusterLabels[i] = majorityType;
+        }
+        
+        data.forEach((p, i) => {
+            if (clusterLabels[assignments[i]] === p.type) {
+                correctCount++;
+            }
+        });
+        
+        return Math.round((correctCount / data.length) * 100);
+    };
 
     const handleRunAnalysis = (type: AnalysisType) => {
         if (isLoading) return;
@@ -170,17 +264,9 @@ const GalaxyZooExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => {
 
         setTimeout(() => {
             if (type === 'ml') {
-                // Mock K-Means clustering. Real K-Means would be more complex.
-                // We'll assign clusters based on the true type for a high score.
-                const newClusters: { [id: number]: number } = {};
-                const typeMap: { [key in GalaxyType]: number } = { 'elliptical': 0, 'spiral': 1, 'irregular': 2 };
-                data.forEach(p => { newClusters[p.id] = typeMap[p.type] });
-                 // Simulate one or two mis-clusterings
-                if(data.length > 2) {
-                   newClusters[data[0].id] = (newClusters[data[0].id] + 1) % 3;
-                   newClusters[data[1].id] = (newClusters[data[1].id] + 1) % 3;
-                }
-                setClusters(newClusters);
+                const result = runKMeans(data, 3);
+                setClusters(result.assignments);
+                setMlScore(calculateMlScore(result.assignments));
             }
             setAnalysisType(type);
             setIsLoading(null);
@@ -227,17 +313,19 @@ const GalaxyZooExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => {
         </div>
 
         <div className="space-y-6">
-            <div>
+            <div className="p-6 bg-white rounded-lg border border-slate-200 space-y-4">
+                <h3 className="text-xl font-bold text-slate-800">Method 1: Manual Thresholding</h3>
+                <p className="text-sm text-slate-600">This traditional method uses simple, manually-defined thresholds on galaxy color and light concentration. This approach is brittle and fails to capture the complex boundaries between galaxy types.</p>
+                <CodeDisplay code={MANUAL_CODE} />
                 <button
                     onClick={() => handleRunAnalysis('threshold')}
                     disabled={!!isLoading}
-                    className="w-full px-6 py-4 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 disabled:bg-slate-400 disabled:cursor-wait"
+                    className="w-full px-6 py-3 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 disabled:bg-slate-400 disabled:cursor-wait"
                 >
                     {isLoading === 'threshold' ? 'Analyzing...' : 'Run Manual Thresholding'}
                 </button>
                 {analysisType === 'threshold' && (
-                    <div className="mt-4 space-y-4 animate-fade-in">
-                        <CodeDisplay code={MANUAL_CODE} />
+                    <div className="animate-fade-in">
                         <ResultCard 
                             title="Manual Thresholding"
                             description="This method uses rigid, pre-defined rules. It struggles with the overlapping nature of galaxy populations, leading to a low score."
@@ -250,21 +338,23 @@ const GalaxyZooExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => {
                     </div>
                 )}
             </div>
-            <div>
+            <div className="p-6 bg-white rounded-lg border border-slate-200 space-y-4">
+                <h3 className="text-xl font-bold text-slate-800">Method 2: K-Means Clustering (ML)</h3>
+                <p className="text-sm text-slate-600">The K-Means clustering algorithm automatically finds the natural groupings (clusters) in the data without being given any labels. It effectively separates the different galaxy populations by finding their centers.</p>
+                <CodeDisplay code={ML_CODE} />
                  <button
                     onClick={() => handleRunAnalysis('ml')}
                     disabled={!!isLoading}
-                    className="w-full px-6 py-4 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-600 hover:to-cyan-700 disabled:bg-slate-400 disabled:cursor-wait"
+                    className="w-full px-6 py-3 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-600 hover:to-cyan-700 disabled:bg-slate-400 disabled:cursor-wait"
                 >
                     {isLoading === 'ml' ? 'Analyzing...' : 'Run K-Means Clustering'}
                 </button>
                  {analysisType === 'ml' && (
-                    <div className="mt-4 space-y-4 animate-fade-in">
-                       <CodeDisplay code={ML_CODE} />
+                    <div className="animate-fade-in">
                        <ResultCard 
                             title="K-Means Clustering (ML)"
                             description="The unsupervised K-Means algorithm identifies the centers of the data clouds, creating clusters that align very well with the true galaxy types."
-                            score={98}
+                            score={mlScore}
                             active={analysisType === 'ml'}
                             icon={<CheckCircleIcon className="w-8 h-8 text-green-500" />}
                             color="border-green-500"

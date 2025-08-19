@@ -28,8 +28,8 @@ const EXAMPLES: {
         shortDescription: 'Habitability',
         Icon: PlanetIcon,
         color: 'amber',
-        // paperTitle: 'Facing the Heat: A Machine Learning-Based Analysis of Exoplanetary Habitability',
-        // paperUrl: 'https://arxiv.org/abs/2105.02237',
+        paperTitle: 'Facing the Heat: A Machine Learning-Based Analysis of Exoplanetary Habitability',
+        paperUrl: 'https://arxiv.org/abs/2105.02237',
     },
     {
         key: 'imagery',
@@ -38,8 +38,8 @@ const EXAMPLES: {
         shortDescription: 'Transits',
         Icon: TelescopeIcon,
         color: 'cyan',
-        // paperTitle: 'Identifying Exoplanets with Deep Learning',
-        // paperUrl: 'https://iopscience.iop.org/article/10.3847/1538-3881/aa9e09',
+        paperTitle: 'Identifying Exoplanets with Deep Learning',
+        paperUrl: 'https://iopscience.iop.org/article/10.3847/1538-3881/aa9e09',
     },
     {
         key: 'atmosphere',
@@ -48,8 +48,8 @@ const EXAMPLES: {
         shortDescription: 'Atmospheres',
         Icon: AtomIcon,
         color: 'indigo',
-        // paperTitle: 'An unsupervised machine learning approach to identifying anomalous spectra for biosignature detection',
-        // paperUrl: 'https://www.nature.com/articles/s41550-021-01509-3',
+        paperTitle: 'An unsupervised machine learning approach to identifying anomalous spectra for biosignature detection',
+        paperUrl: 'https://www.nature.com/articles/s41550-021-01509-3',
     },
     {
         key: 'galaxy-zoo',
@@ -58,8 +58,8 @@ const EXAMPLES: {
         shortDescription: 'Galaxies',
         Icon: GalaxyIcon,
         color: 'teal',
-        // paperTitle: 'Galaxy Zoo: unsupervised classification of galaxy morphologies',
-        // paperUrl: 'https://academic.oup.com/mnras/article/511/3/4313/6533038',
+        paperTitle: 'Galaxy Zoo: unsupervised classification of galaxy morphologies',
+        paperUrl: 'https://academic.oup.com/mnras/article/511/3/4313/6533038',
     },
     {
         key: 'stellar-spectra',
@@ -68,8 +68,8 @@ const EXAMPLES: {
         shortDescription: 'Spectra',
         Icon: SpectrumIcon,
         color: 'pink',
-        // paperTitle: 'Stellar spectral classification using principal component analysis and artificial neural networks',
-        // paperUrl: 'https://academic.oup.com/mnras/article/296/2/329/979684',
+        paperTitle: 'Stellar spectral classification using principal component analysis and artificial neural networks',
+        paperUrl: 'https://academic.oup.com/mnras/article/296/2/329/979684',
     },
     {
         key: 'anomaly-detection',
@@ -78,8 +78,8 @@ const EXAMPLES: {
         shortDescription: 'Anomalies',
         Icon: SignalIcon,
         color: 'fuchsia',
-        // paperTitle: 'An Anomaly Detection-based Search for New Physics in TESS Light Curves',
-        // paperUrl: 'https://arxiv.org/abs/2205.13203',
+        paperTitle: 'An Anomaly Detection-based Search for New Physics in TESS Light Curves',
+        paperUrl: 'https://arxiv.org/abs/2205.13203',
     },
     {
         key: 'live-kmeans',
@@ -88,8 +88,8 @@ const EXAMPLES: {
         shortDescription: 'Live K-Means',
         Icon: BeakerIcon,
         color: 'emerald',
-        // paperTitle: 'Understanding K-Means Clustering',
-        // paperUrl: 'https://en.wikipedia.org/wiki/K-means_clustering',
+        paperTitle: 'Understanding K-Means Clustering',
+        paperUrl: 'https://en.wikipedia.org/wiki/K-means_clustering',
     }
 ];
 

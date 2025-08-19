@@ -301,7 +301,7 @@ const HighlightedCodeDisplay: React.FC<{
     highlightedKey: string | null;
 }> = ({ sections, highlightedKey }) => {
     return (
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm max-h-[22rem] overflow-auto">
+        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm">
             <pre><code className="text-slate-300 whitespace-pre-wrap">
                 {sections.map(({ key, code }) => (
                     <span

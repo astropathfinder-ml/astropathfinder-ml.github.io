@@ -5,7 +5,7 @@ import { CheckCircleIcon, XCircleIcon, BookOpenIcon } from '../Icons';
 type ImageType = 'normal' | 'transit' | 'noise' | 'offset';
 type StarImage = { id: number; type: ImageType; data: number[][] };
 type AnalysisType = 'none' | 'photometry' | 'cnn';
-type ClassificationResult = { [id: number]: boolean }; // true if correct, false if incorrect
+type ClassificationResult = { [id: number]: { actual: boolean; predicted: boolean } };
 interface ExampleProps {
     paperTitle: string;
     paperUrl: string;
@@ -14,53 +14,52 @@ interface ExampleProps {
 const IMAGE_SIZE = 15;
 const NUM_IMAGES = 16;
 
-const TRADITIONAL_CODE = `from skimage.measure import regionprops
-import numpy as np
+const TRADITIONAL_CODE = `const photometryClassifier = (image) => {
+    // Sums the brightness of all pixels inside
+    // a fixed 3x3 square (aperture) at the image center.
+    // Prone to errors from noise or off-center stars.
+    let brightness = 0;
+    const center = Math.floor(IMAGE_SIZE / 2);
+    for (let y = center - 1; y <= center + 1; y++) {
+        for (let x = center - 1; x <= center + 1; x++) {
+            brightness += image.data[y]?.[x] || 0;
+        }
+    }
+    // Predict a transit if brightness is below a threshold.
+    return brightness < 7.0;
+};`;
 
-def has_transit_photometry(image):
-    # Sums the brightness of pixels inside
-    # a fixed circle (aperture).
-    # Prone to errors from noise, cosmic rays,
-    # or off-center stars.
-    h, w = image.shape
-    center_y, center_x = h // 2, w // 2
-    
-    # Simple circular aperture
-    Y, X = np.ogrid[:h, :w]
-    dist_from_center = np.sqrt((X - center_x)**2 + (Y-center_y)**2)
-    mask = dist_from_center <= 3
+const ML_CODE = `const mlClassifier = (image) => {
+    // This model extracts multiple features from the image
+    // to make a more robust classification.
+    const { data } = image;
+    let totalBrightness = 0, weightedX = 0, weightedY = 0, maxPixel = 0;
 
-    brightness = np.sum(image[mask])
-    
-    # Fails if brightness is too low (transit)
-    # or too high (cosmic ray in aperture).
-    return brightness < 130`;
+    // 1. Calculate total brightness, center of light, and cosmic rays.
+    for (let y = 0; y < IMAGE_SIZE; y++) {
+        for (let x = 0; x < IMAGE_SIZE; x++) {
+            const pixel = data[y][x];
+            totalBrightness += pixel;
+            weightedX += x * pixel;
+            weightedY += y * pixel;
+            if (pixel > maxPixel) maxPixel = pixel;
+        }
+    }
+    const centroidX = weightedX / totalBrightness;
+    const centroidY = weightedY / totalBrightness;
+    const distFromCenter = Math.sqrt(Math.pow(centroidX - 7, 2) + Math.pow(centroidY - 7, 2));
 
-const ML_CODE = `from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
-
-# A Convolutional Neural Network (CNN) can
-# learn the spatial features of a transit.
-# It is robust to noise and slight shifts
-# in the star's position, leading to much
-# higher accuracy.
-model = build_cnn_classifier()
-model.fit(X_train, y_train)
-
-# Correctly identifies transits and non-transits
-prediction = model.predict(image)
-return prediction > 0.5`;
+    // 2. Use features in a rule-based model.
+    return totalBrightness < 9.5 && distFromCenter < 3.0 && maxPixel < 1.4;
+};`;
 
 // --- Data Generation and Logic ---
-
-// Generates a single star image
 const generateImage = (type: ImageType): number[][] => {
     const data = Array(IMAGE_SIZE).fill(0).map(() => Array(IMAGE_SIZE).fill(0));
     const centerX = type === 'offset' ? IMAGE_SIZE / 2 + 2 : IMAGE_SIZE / 2;
     const centerY = type === 'offset' ? IMAGE_SIZE / 2 - 2 : IMAGE_SIZE / 2;
     const brightness = type === 'transit' ? 0.7 : 1.0;
 
-    // Add star (Point Spread Function)
     for (let y = 0; y < IMAGE_SIZE; y++) {
         for (let x = 0; x < IMAGE_SIZE; x++) {
             const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
@@ -68,7 +67,6 @@ const generateImage = (type: ImageType): number[][] => {
         }
     }
 
-    // Add noise/cosmic ray for 'noise' type
     if (type === 'noise') {
         const noiseX = Math.floor(Math.random() * IMAGE_SIZE);
         const noiseY = Math.floor(Math.random() * IMAGE_SIZE);
@@ -78,7 +76,6 @@ const generateImage = (type: ImageType): number[][] => {
     return data;
 };
 
-// Generates the full set of images
 const generateImageData = (): StarImage[] => {
     const types: ImageType[] = [
         'normal', 'transit', 'transit', 'noise',
@@ -93,7 +90,7 @@ const generateImageData = (): StarImage[] => {
     }));
 };
 
-// Classifiers
+// --- Real Classifiers ---
 const photometryClassifier = (image: StarImage): boolean => {
     const data = image.data;
     let brightness = 0;
@@ -101,17 +98,42 @@ const photometryClassifier = (image: StarImage): boolean => {
     // Sum pixels in a 3x3 aperture around the expected center
     for (let y = center - 1; y <= center + 1; y++) {
         for (let x = center - 1; x <= center + 1; x++) {
-            brightness += data[y][x];
+            brightness += data[y]?.[x] || 0;
         }
     }
-    const hasTransit = brightness < 7.0; // Threshold determined by experimentation
-    return hasTransit === (image.type === 'transit');
+    const predictedTransit = brightness < 7.0;
+    return predictedTransit;
 };
 
-const cnnClassifier = (image: StarImage): boolean => {
-    // Mocked CNN - it's very good, but makes one mistake on a noisy image
-    if (image.type === 'noise' && image.id === 3) return false; // Make one mistake
-    return true; // Gets everything else right
+const mlClassifier = (image: StarImage): boolean => {
+    const { data } = image;
+    let totalBrightness = 0;
+    let weightedX = 0;
+    let weightedY = 0;
+    let maxPixelValue = 0;
+
+    for (let y = 0; y < IMAGE_SIZE; y++) {
+        for (let x = 0; x < IMAGE_SIZE; x++) {
+            const pixel = data[y][x];
+            totalBrightness += pixel;
+            weightedX += x * pixel;
+            weightedY += y * pixel;
+            if (pixel > maxPixelValue) {
+                maxPixelValue = pixel;
+            }
+        }
+    }
+
+    const centroidX = totalBrightness > 0 ? weightedX / totalBrightness : IMAGE_SIZE / 2;
+    const centroidY = totalBrightness > 0 ? weightedY / totalBrightness : IMAGE_SIZE / 2;
+    const distFromCenter = Math.sqrt(Math.pow(centroidX - IMAGE_SIZE / 2, 2) + Math.pow(centroidY - IMAGE_SIZE / 2, 2));
+
+    // This model is more robust:
+    // 1. It checks total image brightness (less affected by one cosmic ray).
+    // 2. It checks if the star is reasonably centered.
+    // 3. It filters out obvious cosmic rays (maxPixelValue).
+    const predictedTransit = totalBrightness < 9.5 && distFromCenter < 3.0 && maxPixelValue < 1.4;
+    return predictedTransit;
 };
 
 // --- Components ---
@@ -122,10 +144,10 @@ const StarField: React.FC<{ images: StarImage[], results: ClassificationResult |
                 <div key={img.id} className="relative aspect-square">
                     <ImageCanvas data={img.data} />
                     {results && (
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                            {results[img.id] ?
+                        <div className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${results[img.id].predicted === results[img.id].actual ? 'bg-black/50' : 'bg-red-500/60'}`}>
+                            {results[img.id].predicted === results[img.id].actual ?
                                 <CheckCircleIcon className="w-8 h-8 text-green-400" /> :
-                                <XCircleIcon className="w-8 h-8 text-red-400" />
+                                <XCircleIcon className="w-8 h-8 text-white" />
                             }
                         </div>
                     )}
@@ -161,7 +183,7 @@ const ImageCanvas: React.FC<{ data: number[][] }> = ({ data }) => {
 };
 
 const ResultCard: React.FC<{title:string; description: string; accuracy: number; active: boolean; icon: React.ReactNode; color: string; textColor: string}> = ({title, description, accuracy, active, icon, color, textColor}) => (
-    <div className={`p-6 rounded-lg border-2 transition-all duration-300 ${active ? 'bg-white shadow-lg' : 'bg-slate-50 border-transparent'} ${active ? color : 'border-slate-200'}`}>
+    <div className={`p-6 rounded-lg border-2 transition-all duration-300 mt-4 ${active ? 'bg-white shadow-lg' : 'bg-slate-50 border-transparent'} ${active ? color : 'border-slate-200'}`}>
         <div className="flex items-center gap-3">
             {icon}
             <h3 className="text-xl font-bold text-slate-800">{title}</h3>
@@ -174,7 +196,7 @@ const ResultCard: React.FC<{title:string; description: string; accuracy: number;
 );
 
 const CodeDisplay: React.FC<{ code: string }> = ({ code }) => (
-    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm">
+    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm max-h-60 overflow-auto">
         <pre><code className="text-slate-300 whitespace-pre-wrap">{code}</code></pre>
     </div>
 );
@@ -190,19 +212,34 @@ const ImageryExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => {
         setImages(generateImageData());
     }, []);
 
-    const { photometryAccuracy, cnnAccuracy } = useMemo(() => {
-        if (images.length === 0) return { photometryAccuracy: 0, cnnAccuracy: 0 };
-        let photometryCorrect = 0;
-        let cnnCorrect = 0;
+    const calculateAccuracy = (res: ClassificationResult | null): number => {
+        if (!res) return 0;
+        const correct = Object.values(res).filter(r => r.predicted === r.actual).length;
+        return Math.round((correct / images.length) * 100);
+    };
+
+    const photometryAccuracy = useMemo(() => {
+        const photoResults: ClassificationResult = {};
         images.forEach(img => {
-            if (photometryClassifier(img)) photometryCorrect++;
-            if (cnnClassifier(img)) cnnCorrect++;
+            photoResults[img.id] = {
+                actual: img.type === 'transit',
+                predicted: photometryClassifier(img)
+            };
         });
-        return {
-            photometryAccuracy: Math.round((photometryCorrect / images.length) * 100),
-            cnnAccuracy: Math.round((cnnCorrect / images.length) * 100)
-        };
+        return calculateAccuracy(photoResults);
     }, [images]);
+    
+    const mlAccuracy = useMemo(() => {
+        const mlResults: ClassificationResult = {};
+        images.forEach(img => {
+            mlResults[img.id] = {
+                actual: img.type === 'transit',
+                predicted: mlClassifier(img)
+            };
+        });
+        return calculateAccuracy(mlResults);
+    }, [images]);
+
 
     const handleRunAnalysis = (type: AnalysisType) => {
         if (isLoading) return;
@@ -211,9 +248,12 @@ const ImageryExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => {
         setResults(null);
         setTimeout(() => {
             const newResults: ClassificationResult = {};
-            const classifier = type === 'photometry' ? photometryClassifier : cnnClassifier;
+            const classifier = type === 'photometry' ? photometryClassifier : mlClassifier;
             images.forEach(img => {
-                newResults[img.id] = classifier(img);
+                newResults[img.id] = {
+                    actual: img.type === 'transit',
+                    predicted: classifier(img)
+                };
             });
             setResults(newResults);
             setAnalysisType(type);
@@ -254,18 +294,20 @@ const ImageryExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => {
                 <div className="lg:sticky top-24">
                     <StarField images={images} results={results} />
                     <div className="mt-2 text-center text-sm text-slate-500">
-                        Simulated starfield images. Find the transits!
+                        Simulated starfield images. Find the transits! Red overlays indicate a misclassification.
                     </div>
                 </div>
 
                 <div className="space-y-6">
-                    <div>
-                        <button onClick={() => handleRunAnalysis('photometry')} disabled={!!isLoading} className="w-full px-6 py-4 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 disabled:bg-slate-400 disabled:cursor-wait">
+                    <div className="p-6 bg-white rounded-lg border border-slate-200 space-y-4">
+                        <h3 className="text-xl font-bold text-slate-800">Method 1: Aperture Photometry</h3>
+                        <p className="text-sm text-slate-600">This traditional method sums the brightness of pixels inside a fixed circle (aperture). It's simple but prone to errors from noise, cosmic rays, or off-center stars.</p>
+                        <CodeDisplay code={TRADITIONAL_CODE} />
+                        <button onClick={() => handleRunAnalysis('photometry')} disabled={!!isLoading} className="w-full px-6 py-3 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 disabled:bg-slate-400 disabled:cursor-wait">
                             {isLoading === 'photometry' ? 'Analyzing...' : 'Run Aperture Photometry'}
                         </button>
                         {analysisType === 'photometry' && (
-                            <div className="mt-4 space-y-4 animate-fade-in">
-                                <CodeDisplay code={TRADITIONAL_CODE} />
+                            <div className="animate-fade-in">
                                 <ResultCard
                                     title="Aperture Photometry"
                                     description="This method is easily fooled by cosmic rays (noise) or stars that are not perfectly centered, leading to many misclassifications."
@@ -278,17 +320,19 @@ const ImageryExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl }) => {
                             </div>
                         )}
                     </div>
-                    <div>
-                        <button onClick={() => handleRunAnalysis('cnn')} disabled={!!isLoading} className="w-full px-6 py-4 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 disabled:bg-slate-400 disabled:cursor-wait">
-                            {isLoading === 'cnn' ? 'Analyzing...' : 'Run CNN Analysis'}
+                    <div className="p-6 bg-white rounded-lg border border-slate-200 space-y-4">
+                        <h3 className="text-xl font-bold text-slate-800">Method 2: Feature-Based Model (ML)</h3>
+                        <p className="text-sm text-slate-600">Instead of a full CNN, this model demonstrates a simpler ML approach by extracting meaningful features from each image (total brightness, light concentration, etc.) to make a more robust decision.</p>
+                        <CodeDisplay code={ML_CODE} />
+                        <button onClick={() => handleRunAnalysis('cnn')} disabled={!!isLoading} className="w-full px-6 py-3 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 disabled:bg-slate-400 disabled:cursor-wait">
+                            {isLoading === 'cnn' ? 'Analyzing...' : 'Run ML Analysis'}
                         </button>
                         {analysisType === 'cnn' && (
-                            <div className="mt-4 space-y-4 animate-fade-in">
-                                <CodeDisplay code={ML_CODE} />
+                            <div className="animate-fade-in">
                                 <ResultCard
-                                    title="Convolutional Neural Network (ML)"
-                                    description="The CNN learns the 'look' of a transit and is robust to noise and position shifts. It achieves a much higher accuracy."
-                                    accuracy={cnnAccuracy}
+                                    title="Feature-Based Model (ML)"
+                                    description="The ML model uses multiple image features to be more robust to noise and position shifts. It achieves a much higher accuracy."
+                                    accuracy={mlAccuracy}
                                     active={analysisType === 'cnn'}
                                     icon={<CheckCircleIcon className="w-8 h-8 text-green-500" />}
                                     color="border-green-500"

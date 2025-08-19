@@ -10,34 +10,36 @@ interface ExampleProps {
     paperUrl: string;
 }
 
-const TRADITIONAL_CODE = `def find_anomalies_with_thresholds(events):
-    # Uses fixed, rectangular thresholds to find
-    # events that are "too long" or "too bright".
-    # This method is rigid and will miss anomalies
-    # that fall outside these simple box criteria
-    # or misclassify normal variations.
-    anomalies = []
-    for event in events:
-        amp = event['amplitude']
-        dur = event['duration']
-        if amp > 0.8 or dur > 0.8:
-            anomalies.append(event)
-    return anomalies`;
+const TRADITIONAL_CODE = `const traditionalClassifier = (p) => {
+    // Uses fixed, rectangular thresholds to find
+    // events that are "too long" or "too bright".
+    // This method is rigid and misses anomalies
+    // that fall outside these simple box criteria.
+    const amp = p.features.amplitude;
+    const dur = p.features.duration;
+    return amp > 0.8 || dur > 0.8;
+};`;
 
-const ML_CODE = `from sklearn.cluster import DBSCAN
+const ML_CODE = `const mlClassifier = (data) => {
+    // This is a statistical outlier detection algorithm.
+    // It finds the 'center' of the normal data and
+    // flags any points that are unusually far away.
 
-# DBSCAN (Density-Based Spatial Clustering of
-# Applications with Noise) is ideal for anomaly
-# detection. It finds dense regions of "normal"
-# data and classifies anything outside these
-# regions as an outlier (anomaly).
-# It can find arbitrarily shaped clusters.
-model = DBSCAN(eps=0.3, min_samples=10)
-clusters = model.fit_predict(X_data)
+    // 1. Find the centroid of all points.
+    const centroid = { /* ... */ };
 
-# Anomalies are assigned the label '-1'
-anomalies = X_data[clusters == -1]
-print(f"Found {len(anomalies)} anomalies.")`;
+    // 2. Calculate the distance of each point from the centroid.
+    const distances = data.map(p => /* ... */);
+    
+    // 3. Find the average distance and its standard deviation.
+    const meanDistance = /* ... */;
+    const stdDevDistance = /* ... */;
+
+    // 4. Any point further than ~1.6 standard deviations
+    // from the mean distance is flagged as an anomaly.
+    const threshold = 1.6;
+    return distances.map(d => d > meanDistance + threshold * stdDevDistance);
+};`;
 
 // --- Data Generation & Logic ---
 const generateData = (numPoints = 200): DataPoint[] => {
@@ -65,25 +67,52 @@ const generateData = (numPoints = 200): DataPoint[] => {
     return data;
 };
 
-// --- Mock Classifiers ---
+// --- Real Classifiers ---
 const isAnomaly = (p: DataPoint) => p.type !== 'normal';
 
 const traditionalClassifier = (p: DataPoint): boolean => {
     return p.features.amplitude > 0.8 || p.features.duration > 0.8;
 };
 
-const mlClassifier = (p: DataPoint): boolean => {
-    // A mock DBSCAN that perfectly identifies the sparse points
-    const { amplitude, duration } = p.features;
-    const isNormal = amplitude > 0.15 && amplitude < 0.55 && duration > 0.15 && duration < 0.55;
-    return !isNormal;
+// A real, simple distance-based outlier detection
+const mlClassifier = (data: DataPoint[]): boolean[] => {
+    if(data.length === 0) return [];
+    
+    // 1. Find the centroid of all points
+    const { totalDuration, totalAmplitude } = data.reduce(
+        (acc, p) => ({
+            totalDuration: acc.totalDuration + p.features.duration,
+            totalAmplitude: acc.totalAmplitude + p.features.amplitude
+        }),
+        { totalDuration: 0, totalAmplitude: 0 }
+    );
+    const centroid = {
+        duration: totalDuration / data.length,
+        amplitude: totalAmplitude / data.length
+    };
+    
+    // 2. Calculate distance of each point from centroid
+    const distances = data.map(p => Math.sqrt(
+        Math.pow(p.features.duration - centroid.duration, 2) + 
+        Math.pow(p.features.amplitude - centroid.amplitude, 2)
+    ));
+    
+    // 3. Find the mean and std dev of distances
+    const meanDistance = distances.reduce((sum, d) => sum + d, 0) / distances.length;
+    const stdDevDistance = Math.sqrt(
+      distances.map(d => Math.pow(d - meanDistance, 2)).reduce((sum, d) => sum + d, 0) / distances.length
+    );
+
+    // 4. Any point further than `threshold` standard deviations is an anomaly
+    const threshold = 1.6;
+    return distances.map(d => d > meanDistance + threshold * stdDevDistance);
 };
 
-const calculateAccuracy = (data: DataPoint[], classifier: (p: DataPoint) => boolean): { found: number, total: number } => {
+const calculateAccuracy = (data: DataPoint[], predictions: boolean[]): { found: number, total: number } => {
     let found = 0;
     const totalAnomalies = data.filter(isAnomaly).length;
-    data.forEach(p => {
-        if (isAnomaly(p) && classifier(p)) {
+    data.forEach((p, i) => {
+        if (isAnomaly(p) && predictions[i]) {
             found++;
         }
     });
@@ -91,7 +120,7 @@ const calculateAccuracy = (data: DataPoint[], classifier: (p: DataPoint) => bool
 };
 
 // --- Components ---
-const AnalysisPlot: React.FC<{ data: DataPoint[], analysis: AnalysisType }> = ({ data, analysis }) => {
+const AnalysisPlot: React.FC<{ data: DataPoint[], predictions: boolean[] | null }> = ({ data, predictions }) => {
     const width = 500;
     const height = 400;
     const padding = 50;
@@ -101,16 +130,11 @@ const AnalysisPlot: React.FC<{ data: DataPoint[], analysis: AnalysisType }> = ({
     const scaleX = (val: number) => padding + val * (width - 2 * padding);
     const scaleY = (val: number) => (height - padding) - val * (height - padding * 1.5);
 
-    const pointColor = (p: DataPoint) => {
-        if (analysis === 'none') {
+    const pointColor = (p: DataPoint, index: number) => {
+        if (!predictions) {
             return p.type === 'normal' ? 'fill-slate-400' : 'fill-fuchsia-400';
         }
-        if (analysis === 'threshold') {
-            return traditionalClassifier(p) ? 'fill-fuchsia-400' : 'fill-slate-400';
-        }
-        if (analysis === 'ml') {
-            return mlClassifier(p) ? 'fill-fuchsia-400' : 'fill-slate-400';
-        }
+        return predictions[index] ? 'fill-fuchsia-400' : 'fill-slate-400';
     };
 
     return (
@@ -118,21 +142,21 @@ const AnalysisPlot: React.FC<{ data: DataPoint[], analysis: AnalysisType }> = ({
             <text x={width/2} y={height - 15} textAnchor="middle" className="fill-slate-400 text-sm font-sans">Event Duration</text>
             <text x={-height/2} y={15} textAnchor="middle" transform="rotate(-90)" className="fill-slate-400 text-sm font-sans">Event Amplitude</text>
             
-            {analysis === 'threshold' && (
+            {predictions && traditionalClassifier({features: {duration: 0.8, amplitude: 0.8}, type: 'normal', id: -1}) && ( // A bit of a hack to check if we are on traditional
                 <g>
                     <path d={`M ${scaleX(0.8)} ${scaleY(0)} V ${scaleY(1)} M ${scaleX(0)} ${scaleY(0.8)} H ${scaleX(1)}`} className="stroke-red-500 stroke-2 stroke-dasharray-4" />
                 </g>
             )}
 
-            {data.map(p => (
-                <circle key={p.id} cx={scaleX(p.features.duration)} cy={scaleY(p.features.amplitude)} r="3.5" className={pointColor(p)} opacity="0.9" />
+            {data.map((p, i) => (
+                <circle key={p.id} cx={scaleX(p.features.duration)} cy={scaleY(p.features.amplitude)} r="3.5" className={pointColor(p, i)} opacity="0.9" />
             ))}
         </svg>
     );
 };
 
 const ResultCard: React.FC<{title:string; description: string; found: number; total: number; active: boolean; icon: React.ReactNode; color: string; textColor: string}> = ({title, description, found, total, active, icon, color, textColor}) => (
-    <div className={`p-6 rounded-lg border-2 transition-all duration-300 ${active ? 'bg-white shadow-lg' : 'bg-slate-50 border-transparent'} ${active ? color : 'border-slate-200'}`}>
+    <div className={`p-6 rounded-lg border-2 transition-all duration-300 mt-4 ${active ? 'bg-white shadow-lg' : 'bg-slate-50 border-transparent'} ${active ? color : 'border-slate-200'}`}>
         <div className="flex items-center gap-3">
             {icon}
             <h3 className="text-xl font-bold text-slate-800">{title}</h3>
@@ -145,7 +169,7 @@ const ResultCard: React.FC<{title:string; description: string; found: number; to
 );
 
 const CodeDisplay: React.FC<{ code: string }> = ({ code }) => (
-    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm">
+    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 font-mono text-sm max-h-60 overflow-auto">
         <pre><code className="text-slate-300 whitespace-pre-wrap">{code}</code></pre>
     </div>
 );
@@ -154,18 +178,27 @@ const AnomalyDetectionExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl 
     const [data, setData] = useState<DataPoint[]>([]);
     const [analysisType, setAnalysisType] = useState<AnalysisType>('none');
     const [isLoading, setIsLoading] = useState<AnalysisType | null>(null);
+    const [predictions, setPredictions] = useState<boolean[] | null>(null);
 
     useEffect(() => {
         setData(generateData());
     }, []);
 
-    const traditionalResults = useMemo(() => calculateAccuracy(data, traditionalClassifier), [data]);
-    const mlResults = useMemo(() => calculateAccuracy(data, mlClassifier), [data]);
+    const traditionalResults = useMemo(() => calculateAccuracy(data, data.map(traditionalClassifier)), [data]);
+    const mlResults = useMemo(() => calculateAccuracy(data, mlClassifier(data)), [data]);
 
     const handleRunAnalysis = (type: AnalysisType) => {
         if (isLoading) return;
         setIsLoading(type);
+        setAnalysisType('none');
+        setPredictions(null);
+
         setTimeout(() => {
+            if (type === 'threshold') {
+                setPredictions(data.map(traditionalClassifier));
+            } else if (type === 'ml') {
+                setPredictions(mlClassifier(data));
+            }
             setAnalysisType(type);
             setIsLoading(null);
         }, 750);
@@ -202,7 +235,7 @@ const AnomalyDetectionExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl 
 
             <main className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start">
                 <div className="lg:sticky top-24">
-                    <AnalysisPlot data={data} analysis={analysisType} />
+                    <AnalysisPlot data={data} predictions={predictions} />
                     <div className="flex justify-center flex-wrap gap-x-4 gap-y-2 mt-4 text-sm text-slate-500">
                         <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-slate-400"></div> Normal Variation</div>
                         <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-fuchsia-400"></div> Anomaly Detected</div>
@@ -210,13 +243,15 @@ const AnomalyDetectionExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl 
                 </div>
 
                 <div className="space-y-6">
-                    <div>
-                        <button onClick={() => handleRunAnalysis('threshold')} disabled={!!isLoading} className="w-full px-6 py-4 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 disabled:bg-slate-400 disabled:cursor-wait">
+                    <div className="p-6 bg-white rounded-lg border border-slate-200 space-y-4">
+                        <h3 className="text-xl font-bold text-slate-800">Method 1: Fixed Thresholds</h3>
+                        <p className="text-sm text-slate-600">This traditional method uses fixed, rectangular thresholds to find events that are "too long" or "too bright". This is rigid and misses anomalies that fall outside its simple criteria.</p>
+                        <CodeDisplay code={TRADITIONAL_CODE} />
+                        <button onClick={() => handleRunAnalysis('threshold')} disabled={!!isLoading} className="w-full px-6 py-3 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 disabled:bg-slate-400 disabled:cursor-wait">
                             {isLoading === 'threshold' ? 'Analyzing...' : 'Run Fixed Thresholds'}
                         </button>
                         {analysisType === 'threshold' && (
-                            <div className="mt-4 space-y-4 animate-fade-in">
-                                <CodeDisplay code={TRADITIONAL_CODE} />
+                            <div className="animate-fade-in">
                                 <ResultCard
                                     title="Fixed Thresholds"
                                     description="The rigid box-based rules miss the 'unusual dip' anomalies entirely and incorrectly flag some normal variations as anomalous."
@@ -230,16 +265,18 @@ const AnomalyDetectionExample: React.FC<ExampleProps> = ({ paperTitle, paperUrl 
                             </div>
                         )}
                     </div>
-                    <div>
-                        <button onClick={() => handleRunAnalysis('ml')} disabled={!!isLoading} className="w-full px-6 py-4 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-fuchsia-500 to-purple-600 hover:from-fuchsia-600 hover:to-purple-700 disabled:bg-slate-400 disabled:cursor-wait">
-                            {isLoading === 'ml' ? 'Analyzing...' : 'Run DBSCAN Analysis'}
+                    <div className="p-6 bg-white rounded-lg border border-slate-200 space-y-4">
+                        <h3 className="text-xl font-bold text-slate-800">Method 2: Statistical Outlier Detection (ML)</h3>
+                        <p className="text-sm text-slate-600">This unsupervised ML method automatically finds the dense cluster of "normal" data and identifies anything statistically far from that cluster's center as an anomaly, regardless of shape.</p>
+                        <CodeDisplay code={ML_CODE} />
+                        <button onClick={() => handleRunAnalysis('ml')} disabled={!!isLoading} className="w-full px-6 py-3 text-lg font-semibold text-white rounded-md transition-all duration-300 bg-gradient-to-r from-fuchsia-500 to-purple-600 hover:from-fuchsia-600 hover:to-purple-700 disabled:bg-slate-400 disabled:cursor-wait">
+                            {isLoading === 'ml' ? 'Analyzing...' : 'Run Outlier Detection'}
                         </button>
                         {analysisType === 'ml' && (
-                            <div className="mt-4 space-y-4 animate-fade-in">
-                                <CodeDisplay code={ML_CODE} />
+                            <div className="animate-fade-in">
                                 <ResultCard
-                                    title="DBSCAN Clustering (ML)"
-                                    description="DBSCAN correctly identifies the dense cluster of normal events and flags all points outside of it as anomalies, successfully finding both flares and dips."
+                                    title="Statistical Outlier Detection (ML)"
+                                    description="This method correctly identifies the dense cluster of normal events and flags all points statistically far from the center as anomalies."
                                     found={mlResults.found}
                                     total={mlResults.total}
                                     active={analysisType === 'ml'}
